@@ -1,0 +1,90 @@
+---
+- name : Install required packages
+  yum :
+    name : '{{ required_packages }}'
+    state : present
+- name : Copy FEP binaries on the database server
+  copy :
+    src : '{{ FEP_src }}/{{ ISO_file }}'
+    dest : '{{ FEP_tgt }}'
+- name : Mount the iso file
+  mount :
+    src : '{{ FEP_tgt }}/{{ ISO_file }}'
+    path : '{{ mount_path }}'
+    fstype : iso9660
+    opts : ro,loop
+    state : mounted
+- name : Create Install Directory.
+  file :
+    path : '{{ FEP_install_path | dirname }}'
+    state : directory
+    mode : '755'
+-  name  : Copy FEP silent install paramters
+   copy :
+     src : '{{ FEP_src }}/{{ scripts }}/{{ silent_install}}'
+     dest : '{{ FEP_tgt }}/{{ scripts }}/'
+- name: "Find out if FEP is already installed"
+  ansible.builtin.stat:
+    path: '{{ FEP_install_path }}/bin/initdb'
+  register: FEP_install
+- name : Install FEP
+  command : '{{ mount_path}}/silent.sh  {{ FEP_tgt }}/{{ scripts }}/{{ silent_install }}'
+  when : not FEP_install.stat.exists
+- name : Create database administartor user.
+  user :
+    name : '{{ pg_admin_user }}'
+    home : '/home/{{ pg_admin_user }}'
+- name : Create Data Directory.
+  file :
+    path : '{{ FEP_data_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+- name : Create Transaction Directory.
+  file :
+    path : '{{ FEP_WAL_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+  when : WAL_dir
+- name : Create WAL Archive Directory.
+  file :
+    path : '{{ FEP_archive_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+  when : WAL_archive
+- name : Create Log Directory.
+  file :
+    path : '{{ FEP_log_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+  when : log_dir
+- name : Create Core Directory.
+  file :
+    path : '{{ FEP_core_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+  when : core_dir
+- name : Create Directory to store the certificates.
+  file :
+    path : '{{ FEP_cert_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+- name : Update Environemnt variables
+  become : yes
+  become_user : '{{ pg_admin_user }}'
+  lineinfile: "dest=/home/{{ pg_admin_user}}/.bash_profile line='export PATH={{ FEP_install_path }}/bin:$PATH' insertafter='EOF' regexp='export PATH={{ FEP_install_path }}/bin:$PATH' state=present"
+- name : Update Library_path
+  lineinfile: "dest=/home/{{ pg_admin_user }}/.bash_profile line='export LD_LIBRARY_PATH={{ FEP_install_path }}/lib:$LD_LIBRARY_PATH' insertafter='EOF' regexp='export LD_LIBRARY_PATH={{ FEP_install_path}}/lib:$LD_LIBRARY_PATH' state=present"
+- name : Update MANPATH
+  lineinfile: "dest=/home/{{ pg_admin_user }}/.bash_profile line='export MANPATH={{ FEP_install_path }}/share/manual:$MANPATH' insertafter='EOF' regexp='export MANPATH={{ FEP_install_path}}/share/manual:$MANPATH' state=present"

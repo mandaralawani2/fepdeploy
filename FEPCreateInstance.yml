@@ -1,0 +1,186 @@
+---
+- name : Fetch hostname
+  command :
+    cmd : "hostname -s"
+  register : host_name
+- name : debug
+  debug :
+    msg : '{{ host_name.stdout }}'
+- name : Check if FEP instance exists
+  stat :
+    path : '{{ FEP_data_directory }}/postgresql.conf'
+  register : FEP_cluster
+- name : Inilialize FEP instance.
+  become : true
+  become_user : '{{ pg_admin_user }}'
+  become_flags : -i
+  command :
+    cmd : "initdb -D {{ FEP_data_directory }} -X {{ FEP_WAL_directory }} --lc-collate={{ locale }} --encoding={{ encoding }}"
+  when : WAL_dir and (not FEP_cluster.stat.exists)
+- name : Inilialize FEP instance.
+  become : true
+  become_user : '{{ pg_admin_user }}'
+  become_flags : -i
+  command :
+    cmd : "initdb -D {{ FEP_data_directory }} --lc-collate={{ locale }} --encoding={{ encoding }}"
+  when : (not WAL_dir) and (not FEP_cluster.stat.exists)
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_mds_small.yml
+  when :  host_name.stdout in groups['mds_small']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_mds_medium.yml
+  when : host_name.stdout in groups['mds_medium']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_mds_large.yml
+  when : host_name.stdout in groups['mds_large']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_daml_small.yml
+  when : host_name.stdout in groups['daml_small']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_daml_medium.yml
+  when : host_name.stdout in groups['daml_medium']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_daml_large.yml
+  when : host_name.stdout in groups['daml_large']
+- name : Synchronize the OSS extensions
+  synchronize :
+    src : '{{ FEP_install_path }}/OSS/{{ item | trim }}/'
+    dest : '{{ FEP_install_path }}/'
+    recursive : true
+  delegate_to: "{{ inventory_hostname }}"
+  with_items : "{{ shared_preload_libraries.split(',') }}"
+- name : Add configuration to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/postgresql.conf'
+    marker : "# {mark} PostgreSQL Configuration Settings"
+    block: |
+      listen_addresses = '{{ listen_addresses }}'
+      port = '{{ port }}'
+      max_connections = '{{ max_connections }}'
+      password_encryption = '{{ password_encryption }}'
+      krb_server_keyfile = '{{ krb_server_keyfile }}'
+      shared_buffers = '{{ shared_buffers }}'
+      work_mem = '{{ work_mem }}'
+      maintenance_work_mem = '{{ maintenance_work_mem }}'
+      max_worker_processes = '{{ max_worker_processes }}'
+      max_parallel_maintenance_workers = '{{ max_parallel_maintenance_workers }}'
+      max_parallel_workers_per_gather = '{{ max_parallel_workers_per_gather }}'
+      max_parallel_workers = '{{ max_parallel_workers }}'
+      wal_level = '{{ wal_level }}'
+      min_wal_size = '{{ min_wal_size }}'
+      max_wal_size = '{{ max_wal_size }}'
+      effective_cache_size = '{{ effective_cache_size }}'
+      log_destination = '{{ log_destination }}'
+      logging_collector = '{{ logging_collector }}'
+      log_filename = '{{ log_filename }}'
+      log_file_mode = '{{ log_file_mode }}'
+      log_rotation_age = '{{ log_rotation_age }}'
+      log_connections = '{{ log_connections }}'
+      log_disconnections = '{{ log_disconnections }}'
+      log_hostname = '{{ log_hostname }}'
+      log_line_prefix = '{{ log_line_prefix }}'
+      log_replication_commands = '{{ log_replication_commands }}'
+      log_timezone = '{{ log_timezone }}'
+      timezone = '{{ timezone }}'
+      shared_preload_libraries = '{{ shared_preload_libraries }}'
+      pgaudit.config_file = '{{ pgaudit_config_file }}'
+    state : present
+- name : Add log directory to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/postgresql.conf'
+    marker : "# {mark} log directory Settings"
+    block: |
+      log_directory = '{{ log_directory }}'
+    state : present
+  when : log_dir
+- name : Add ssl configuration to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/postgresql.conf'
+    marker : "# {mark} SSL Configuration Settings"
+    block: |
+      ssl = '{{ ssl }}'
+      ssl_ca_file = '{{ ssl_ca_file }}'
+      ssl_cert_file = '{{ ssl_cert_file }}'
+      ssl_key_file = '{{ ssl_key_file }}'
+    state : present
+  when : ssl_config
+- name : Add archive settings to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/postgresql.conf'
+    marker : "# {mark} Archive Settings"
+    block: |
+      archive_mode = '{{ archive_mode }}'
+      archive_command = '{{ archive_command }}'
+    state : present
+  when : WAL_archive
+- name : Add core file settings to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/postgresql.conf'
+    marker : "# {mark} Core file Settings"
+    block: |
+      core_directory = '{{ core_directory }}'
+    state : present
+  when : core_dir
+- name : Create pgaudit configuration file.
+  file :
+    path : '{{ FEP_data_directory}}/pgaudit.conf'
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    state : touch
+    mode : '700'
+- name : Add configuration to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/pgaudit.conf'
+    block: |
+      [output]
+      logger='serverlog'
+      [rule]
+      class='ROLE, SYSTEM, CONNECT'
+    state : present
+- name : Copy fep unit file
+  copy :
+    src : '{{ FEP_install_path}}/share/fsepsvoi.service.sample'
+    dest : '/usr/lib/systemd/system/fsepsvoi.service'
+    remote_src : yes
+    mode : 644
+- name : Update FEP unit file start command
+  lineinfile:
+    dest : /usr/lib/systemd/system/fsepsvoi.service
+    line : "ExecStart=/bin/bash -c \'{{ FEP_install_path }}/bin/pgx_symstd start {{ FEP_install_path }} {{ FEP_data_directory }}\'"
+    insertafter : 'EOF'
+    regexp : 'ExecStart=*'
+    state : present
+- name : Update FEP unit file stop command
+  lineinfile:
+    dest : /usr/lib/systemd/system/fsepsvoi.service
+    line : "ExecStop=/bin/bash -c \'{{ FEP_install_path }}/bin/pgx_symstd stop {{ FEP_install_path }} {{ FEP_data_directory }}\'"
+    insertafter : 'EOF'
+    regexp : 'ExecStop=*'
+    state : present
+- name : Update FEP unit file reload command
+  lineinfile:
+    dest : /usr/lib/systemd/system/fsepsvoi.service
+    line : "ExecReload=/bin/bash -c \'{{ FEP_install_path }}/bin/pgx_symstd reload {{ FEP_install_path }} {{ FEP_data_directory }}\'"
+    insertafter : 'EOF'
+    regexp : 'ExecReload=*'
+    state : present
+- name : Update FEP unit file user
+  lineinfile:
+    dest : /usr/lib/systemd/system/fsepsvoi.service
+    line : "User={{ pg_admin_user }}"
+    insertafter : 'EOF'
+    regexp : 'User=*'
+    state : present
+- name : Update FEP unit file group
+  lineinfile:
+    dest : /usr/lib/systemd/system/fsepsvoi.service
+    line : "Group={{ pg_admin_user }}"
+    insertafter : 'EOF'
+    regexp : 'Group=*'
+    state : present
+- name : Start and enable FEP service
+  systemd:
+    name : fsepsvoi
+    daemon_reload : yes
+    enabled : yes
+    state : started

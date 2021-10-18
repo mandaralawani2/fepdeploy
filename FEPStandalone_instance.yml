@@ -1,0 +1,12 @@
+---
+- name : Create FEP instance.
+  hosts : dbservers
+  become : true
+  vars_files :
+    - vars_install.yml
+    - vars_create_instance.yml
+  tasks :
+    - name : Include FEP installation tasks.
+      include_tasks : FEPinstall.yml
+    - name : Include FEP Create instance tasks.
+      include_tasks : FEPCreateInstance.yml

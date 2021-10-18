@@ -1,0 +1,59 @@
+# This is the default ansible 'hosts' file.
+#
+# It should live in /etc/ansible/hosts
+#
+#   - Comments begin with the '#' character
+#   - Blank lines are ignored
+#   - Groups of hosts are delimited by [header] elements
+#   - You can enter hostnames or ip addresses
+#   - A hostname/ip can be a member of multiple groups
+
+# Ex 3: A collection of database servers in the 'dbservers' group
+
+[dbservers]
+localhost ansible_connection=local
+
+[primary]
+qcsp1db2006
+
+[standby]
+qcsp1db2007
+
+[arbitration]
+qcsp1ar2006
+
+[mds_small]
+qcsp2db2004
+qcsp2db1004
+qcsp3db2004
+
+[mds_medium]
+qcsp8db2006
+qcsp8db2007
+qcsp8db1006
+qcsp8db1007
+
+[mds_large]
+qcsp1db2006
+qcsp1db2007
+qcsp1db1006
+qcsp1db1007
+qcsp1db2016
+qcsp1db2017
+qcsp1db1016
+qcsp1db1017
+
+[daml_small]
+qcsp2db2005
+qcsp2db1005
+qcsp3db2005
+
+[daml_medium]
+qcsp8db2008
+qcsp8db1008
+
+[daml_large]
+qcsp1db2008
+qcsp1db1008
+qcsp1db2018
+qcsp1db1018

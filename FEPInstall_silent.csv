@@ -1,0 +1,12 @@
+installInfo,Name,FUJITSU Enterprise Postgres
+parameters,ServerInstallExecute,Y
+parameters,ServerInstallPath,/d1/FEP/fsepv13server64
+parameters,Client64InstallExecute,N
+parameters,Client64InstallPath,
+parameters,WebAdminInstallExecute,N
+parameters,WebAdminInstallPath,
+parameters,WebSetupExecute,N
+parameters,WebPortNumber1,27515
+parameters,WebPortNumber2,27516
+parameters,Pgpool2InstallExecute,N
+parameters,Pgpool2InstallPath,

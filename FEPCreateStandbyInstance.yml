@@ -1,0 +1,156 @@
+---
+- name : Check if FEP instance exists
+  stat :
+    path : '{{ FEP_data_directory }}/postgresql.conf'
+  register : FEP_cluster
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_mds_small.yml
+  when :  host_name.stdout in groups['mds_small']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_mds_medium.yml
+  when : host_name.stdout in groups['mds_medium']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_mds_large.yml
+  when : host_name.stdout in groups['mds_large']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_daml_small.yml
+  when : host_name.stdout in groups['daml_small']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_daml_medium.yml
+  when : host_name.stdout in groups['daml_medium']
+- name : include configuration variables based on the environemnt
+  include_vars : vars_postgresql_conf_daml_large.yml
+  when : host_name.stdout in groups['daml_large']
+- name : Create standby instance from the primary FEP instance.
+  become : true
+  become_user : '{{ pg_admin_user }}'
+  become_flags : -i
+  command :
+    cmd : "pg_basebackup -D {{ FEP_data_directory }} -X stream --waldir={{ FEP_WAL_directory }} --progress -S repl_slot --verbose -R --dbname='application_name={{ synchronous_standby_names }}' -h {{ primary_hostname }}.asx.com.au -p {{ port }} -U repl_user"
+  when : WAL_dir and (not FEP_cluster.stat.exists)
+- name : Create standby instance from the primary FEP instance.
+  become : true
+  become_user : '{{ pg_admin_user }}'
+  become_flags : -i
+  command :
+    cmd : "pg_basebackup -D {{ FEP_data_directory }} -X stream --progress -S repl_slot --verbose -R --dbname='application_name={{ synchronous_standby_names }}' -h {{ primary_hostname }}.asx.com.au -p {{ port }} -U repl_user"
+  when : (not WAL_dir) and (not FEP_cluster.stat.exists)
+- name : Synchronize the OSS extensions
+  synchronize :
+    src : '{{ FEP_install_path }}/OSS/{{ item | trim }}/'
+    dest : '{{ FEP_install_path }}/'
+    recursive : true
+  delegate_to: "{{ inventory_hostname }}"
+  with_items : "{{ shared_preload_libraries.split(',') }}"
+- name : Create pgaudit configuration file.
+  file :
+    path : '{{ FEP_data_directory}}/pgaudit.conf'
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    state : touch
+    mode : '700'
+- name : Add configuration to postgresql.conf
+  blockinfile:
+    dest : '{{ FEP_data_directory }}/pgaudit.conf'
+    block: |
+      [output]
+      logger='serverlog'
+      [rule]
+      class='ROLE, SYSTEM, CONNECT'
+    state : present
+- name : Create Mirroring Controller Directory.
+  file :
+    path : '{{ MC_directory}}'
+    state : directory
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+    mode : '700'
+  when : mc_dir
+- name : Copy MC Network configuration file
+  copy :
+    src : '{{ FEP_install_path}}/share/mc_network.conf.sample'
+    dest : '{{ MC_directory }}/network.conf'
+    remote_src : yes
+    mode : 0600
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+- name : Copy MC server configuration file
+  copy :
+    src : '{{ FEP_install_path}}/share/mc_server.conf.sample'
+    dest : '{{ MC_directory }}/server2.conf'
+    remote_src : yes
+    mode : 0600
+    owner : '{{ pg_admin_user }}'
+    group : '{{ pg_admin_user }}'
+- name : Update MC network file
+  lineinfile:
+    dest : '{{ MC_directory }}/network.conf'
+    line : "server1 {{ primary_hostname }}.asx.com.au,{{ primary_hostname }}.asx.com.au 29940,29941 server"
+    insertafter : 'EOF'
+    state : present
+- name : Update MC network file
+  lineinfile:
+    dest : '{{ MC_directory }}/network.conf'
+    line : "server2 {{ host_name.stdout }}.asx.com.au,{{ host_name.stdout }}.asx.com.au 29940,29941 server"
+    insertafter : 'EOF'
+    state : present
+- name : Update MC network file
+  lineinfile:
+    dest : '{{ MC_directory }}/network.conf'
+    line : "arbiter {{ arbiter_hostname }}.asx.com.au 29941 arbiter"
+    insertafter : 'EOF'
+    state : present
+- name : Update MC server identifier file
+  lineinfile:
+    dest : '{{ MC_directory }}/server2.conf'
+    line : "db_instance = '{{ FEP_data_directory }}'"
+    insertafter : 'EOF'
+    regexp : "^#db_instance = ''"
+    state : present
+- name : Copy Mirroring Controller unit file
+  copy :
+    src : '{{ FEP_install_path}}/share/mcoi.service.sample'
+    dest : '/usr/lib/systemd/system/mcoi.service'
+    remote_src : yes
+    mode : 0644
+- name : Update MC unit file start command
+  lineinfile:
+    dest : /usr/lib/systemd/system/mcoi.service
+    line : "ExecStart=/bin/bash -c \'{{ FEP_install_path }}/bin/mc_std start {{ FEP_install_path }} {{ MC_directory }}\'"
+    insertafter : 'EOF'
+    regexp : 'ExecStart=*'
+    state : present
+- name : Update MC unit file stop command
+  lineinfile:
+    dest : /usr/lib/systemd/system/mcoi.service
+    line : "ExecStop=/bin/bash -c \'{{ FEP_install_path }}/bin/mc_std stop {{ FEP_install_path }} {{ MC_directory }}\'"
+    insertafter : 'EOF'
+    regexp : 'ExecStop=*'
+    state : present
+- name : Update MC unit file reload command
+  lineinfile:
+    dest : /usr/lib/systemd/system/mcoi.service
+    line : "ExecReload=/bin/bash -c \'{{ FEP_install_path }}/bin/pgx_symstd reload {{ FEP_install_path }} {{ FEP_data_directory }}\'"
+    insertafter : '^ExecStop=*'
+    regexp : 'ExecReload=*'
+    state : present
+- name : Update MC unit file user
+  lineinfile:
+    dest : /usr/lib/systemd/system/mcoi.service
+    line : "User={{ pg_admin_user }}"
+    insertafter : 'EOF'
+    regexp : 'User=*'
+    state : present
+- name : Update MC unit file group
+  lineinfile:
+    dest : /usr/lib/systemd/system/mcoi.service
+    line : "Group={{ pg_admin_user }}"
+    insertafter : 'EOF'
+    regexp : 'Group=*'
+    state : present
+- name : Start and enable FEP service
+  systemd:
+    name : mcoi
+    daemon_reload : yes
+    enabled : yes
+    state : started
